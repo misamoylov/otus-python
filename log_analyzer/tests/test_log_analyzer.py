@@ -1,6 +1,6 @@
 import unittest
 
-from log_analyzer.log_analyzer import get_count, get_count_perc, get_med,\
+from log_analyzer.log_analyzer import get_count_perc, get_med,\
     get_time_avg, get_time_max, get_time_perc, get_time_sum, median
 
 
@@ -25,13 +25,11 @@ class TestLogAnalyzer(unittest.TestCase):
                                      }
                             }
 
-    def test_count(self):
-        self.assertEqual(get_count(self.test_statistics_data,
-                                   "/test/url"), 14)
-
     def test_count_perc(self):
-        self.assertEqual(get_count_perc(self.test_statistics_data,
-                                        '/test/url'), 50.0)
+        self.assertEqual(get_count_perc(28,
+                                        self.test_statistics_data[
+                                            'urls']['/test/url']['count']),
+                         50.0)
 
     def test_median(self):
         self.assertEquals(median([1, 1, 1]), 1)
@@ -49,24 +47,30 @@ class TestLogAnalyzer(unittest.TestCase):
             median(['s', '1'])
 
     def test_time_avg(self):
-        self.assertEquals(get_time_avg(self.test_statistics_data,
-                                       '/test/url'), 0.6192142857142857)
+        self.assertEquals(get_time_avg(self.test_statistics_data[
+                                            'urls']['/test/url']['times']),
+                          0.6192142857142857)
 
     def test_time_max(self):
-        self.assertEquals(get_time_max(self.test_statistics_data,
-                                       '/test/url'), 1.17)
+        self.assertEquals(get_time_max(self.test_statistics_data[
+                                            'urls']['/test/url']['times']),
+                          1.17)
 
     def test_time_perc(self):
         self.assertEquals(get_time_perc(self.test_statistics_data,
-                                        '/test/url'), 50.000000000000014)
+                                        self.test_statistics_data[
+                                            'urls']['/test/url']['times']),
+                          50.000000000000014)
 
     def test_time_sum(self):
-        self.assertEquals(get_time_sum(self.test_statistics_data,
-                                       '/test/url'), 8.669)
+        self.assertEquals(get_time_sum(self.test_statistics_data[
+                                            'urls']['/test/url']['times']),
+                          8.669)
 
     def test_median(self):
-        self.assertEquals(get_med(self.test_statistics_data,
-                                  '/test/url'), 0.621)
+        self.assertEquals(get_med(self.test_statistics_data[
+                                            'urls']['/test/url']['times']),
+                          0.621)
 
 
 if __name__ == '__main__':
