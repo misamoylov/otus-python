@@ -1,13 +1,14 @@
 import argparse
 import ConfigParser
+import glob
 import gzip
 import logging
 import re
 import sys
-import shutil
 
+from collections import defaultdict
 from operator import itemgetter
-from os import listdir, walk
+from os import listdir
 from os.path import exists, join, isdir
 from time import gmtime, strftime
 
@@ -22,46 +23,31 @@ def median(lst):
             return sum(sorted(lst)[n//2-1:n//2+1])/2.0
 
 
-def get_last_report_file(report_dir):
+def get_last_file_by_date(dir, nginx=False):
     """
 
-    :param report_dir:
+    :param file:
+    :param pattern:
     :return:
     """
-    report_files = []
-    if isdir(report_dir):
-        for root, dirs, files in walk(report_dir):
-            for file in files:
-                if file.startswith("report-") and file.endswith(".html"):
-                    report_files.append(file)
+    files = []
+    if nginx:
+        pattern = "nginx-access-ui.log-*"
+    else:
+        pattern = "report-*.html"
+    pathname = join(dir, pattern)
+    if isdir(dir):
+        for file in glob.glob(pathname):
+            files.append(file.split("/")[-1])
     else:
         sys.exit(1)
-    return sorted(report_files)[-1]
+    return sorted(files)[-1]
 
 
-def get_last_log_file(log_dir):
-    """Walks on dir, find all nginx logs and return last log_file name
-
-    :param log_dir: directory with logs
-    :return: str: log file name
+def generate_statistics(file):
     """
 
-    log_files = []
-    if isdir(log_dir):
-        for root, dirs, files in walk(log_dir):
-            for file in files:
-                if file.startswith("nginx-access-ui.log"):
-                    log_files.append(file)
-    else:
-        sys.exit(1)
-    return sorted(log_files)[-1]
-
-
-def parse_log_file(log_file):
-    """Parse log file and return parsed dict with urls and request times
-    :param: log_dir
-    :param log_file:
-    :return: dict
+    :return:
     """
     regexps = [(r'\d+.\d+.\d+.\d+\s+'
                 r'\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+'
@@ -71,45 +57,51 @@ def parse_log_file(log_file):
                 r'\S+\s+\S+\s+\S+\s+\S+\s+'
                 r'\S+\s+(\S+)\s+\S+\S+\s+\S+\s+\S+\s+".*?"\s+'
                 r'".*?"\s+".*?"\s+".*?"\s+".*?"\s+(\S+)')]
-    file_for_parsing = log_file
-    if log_file.endswith(".gz"):
-        with gzip.open(log_file, 'rb') as f_in:
-            with open(log_file.rstrip(".gz"), 'wb') as f_out:
-                shutil.copyfileobj(f_in, f_out)
-        file_for_parsing = file_for_parsing.rstrip(".gz")
     statistics = {'urls': {}}
     unparsed_events = 0
     events = 0
-    with open(file_for_parsing) as infile:
-        for l in infile:
-            events += 1
-            parsed_ratio = 100 * (events - unparsed_events) / events
-            for regexp in regexps:
-                if isinstance(l, (bytes, bytearray)):
-                    data = re.search(regexp, l.decode())
-                else:
-                    data = re.search(regexp, l)
-            if parsed_ratio > 50:
-                if data:
-                    url = data.group(1)
-                    request_time = data.group(2)
-                    if url not in statistics['urls'].keys():
-                        statistics["urls"][url] = {}
-                        statistics["urls"][url]["count"] = 1
-                        statistics["urls"][url]["times"] = []
-                        statistics["urls"][url]["times"].append(
-                            float(request_time))
-                    else:
-                        statistics["urls"][url]["count"] += 1
-                        statistics["urls"][url]["times"].append(
-                            float(request_time))
-                else:
-                    unparsed_events += 1
+    for l in file:
+        events += 1
+        parsed_ratio = 100 * (events - unparsed_events) / events
+        for regexp in regexps:
+            if isinstance(l, (bytes, bytearray)):
+                data = re.search(regexp, l.decode())
             else:
-                logging.ERROR("Too many unparsed events, exiting...")
-                sys.exit(1)
+                data = re.search(regexp, l)
+        if parsed_ratio > 50:
+            if data:
+                url = data.group(1)
+                request_time = data.group(2)
+                if url not in statistics['urls'].keys():
+                    statistics["urls"][url] = {}
+                    statistics["urls"][url]["count"] = 1
+                    statistics["urls"][url]["times"] = []
+                    statistics["urls"][url]["times"].append(
+                        float(request_time))
+                else:
+                    statistics["urls"][url]["count"] += 1
+                    statistics["urls"][url]["times"].append(
+                        float(request_time))
+            else:
+                unparsed_events += 1
+        else:
+            logging.ERROR("Too many unparsed events, exiting...")
+            sys.exit(1)
     statistics["total_events"] = events
     return statistics
+
+
+def parse_log_file(log_file):
+    """Parse log file and return parsed dict with urls and request times
+    :param: log_dir
+    :param log_file:
+    :return: dict
+    """
+    if log_file.endswith(".gz"):
+        with gzip.open(log_file, 'rb') as file:
+            return generate_statistics(file)
+    with open(log_file) as file:
+        return generate_statistics(file)
 
 
 def get_top_urls(statistics, report_size):
@@ -255,7 +247,7 @@ def parse_config(config):
             Config.get("LogAnalyzer", 'REPORT_SIZE'))
 
 
-def cmd():
+def parse_args():
     parser = argparse.ArgumentParser(
         description='Nginx Log Analyzer Script v1.0')
     subparsers = parser.add_subparsers(help="Provide config file from "
@@ -286,7 +278,7 @@ def cmd():
 
 def main():
     FORMAT = '%(asctime)s %(levelname)s %(message)s'
-    options = cmd()
+    options = parse_args()
     nginx_dir = options[0]
     report_dir = options[1]
     log_dir = options[2]
@@ -299,7 +291,8 @@ def main():
         logging.basicConfig(format=FORMAT, datefmt='%Y.%m.%d %H:%M:%S',
                             stream=sys.stdout, level=logging.DEBUG)
     try:
-        nginx_file = get_last_log_file(nginx_dir)
+        # nginx_file = get_last_log_file(nginx_dir)
+        nginx_file = get_last_file_by_date(nginx_dir, True)
         date = get_log_file_date(nginx_file)
         report_date = ".".join([date[0:4], date[4:6], date[6:9]])
         nginx_file_full_path = join(nginx_dir, nginx_file)
@@ -307,7 +300,8 @@ def main():
             logging.info("Report directory is empty."
                          " First time running script")
         else:
-            last_report_file = get_last_report_file(report_dir)
+            # last_report_file = get_last_report_file(report_dir)
+            last_report_file = get_last_file_by_date(report_dir)
             last_report_date = last_report_file.lstrip(
                 'report-').rstrip('.html').replace(".", "")
             last_log_date = get_log_file_date(nginx_file)
