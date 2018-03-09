@@ -10,6 +10,7 @@ from collections import defaultdict
 from operator import itemgetter
 from os import listdir
 from os.path import exists, join, isdir
+from sys import platform as _platform
 from time import gmtime, strftime
 
 
@@ -30,6 +31,11 @@ def get_last_file_by_date(dir, nginx=False):
     :param pattern:
     :return:
     """
+
+    if _platform in ["linux", "linux2", 'darwin']:
+        delimiter = "/"
+    elif _platform in ["win32", "win64"]:
+        delimiter = "\\"
     files = []
     if nginx:
         pattern = "nginx-access-ui.log-*"
@@ -38,7 +44,7 @@ def get_last_file_by_date(dir, nginx=False):
     pathname = join(dir, pattern)
     if isdir(dir):
         for file in glob.glob(pathname):
-            files.append(file.split("/")[-1])
+            files.append(file.split(delimiter)[-1])
     else:
         sys.exit(1)
     return sorted(files)[-1]
