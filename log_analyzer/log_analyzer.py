@@ -44,9 +44,10 @@ def get_last_file_by_date(dir, nginx=False):
     return sorted(files)[-1]
 
 
-def generate_statistics(file):
-    """
-
+def generate_statistics(file, unparsed_ratio):
+    """Generate statistics
+    :file: str - path to file
+    :unparsed_ratio: integer
     :return:
     """
     regexps = [(r'\d+.\d+.\d+.\d+\s+'
@@ -68,7 +69,7 @@ def generate_statistics(file):
                 data = re.search(regexp, l.decode())
             else:
                 data = re.search(regexp, l)
-        if parsed_ratio > 50:
+        if parsed_ratio > unparsed_ratio:
             if data:
                 url = data.group(1)
                 request_time = data.group(2)
@@ -91,7 +92,7 @@ def generate_statistics(file):
     return statistics
 
 
-def parse_log_file(log_file):
+def parse_log_file(log_file, unparsed_ratio):
     """Parse log file and return parsed dict with urls and request times
     :param: log_dir
     :param log_file:
@@ -99,9 +100,9 @@ def parse_log_file(log_file):
     """
     if log_file.endswith(".gz"):
         with gzip.open(log_file, 'rb') as file:
-            return generate_statistics(file)
+            return generate_statistics(file, unparsed_ratio)
     with open(log_file) as file:
-        return generate_statistics(file)
+        return generate_statistics(file, unparsed_ratio)
 
 
 def get_top_urls(statistics, report_size):
@@ -268,12 +269,15 @@ def parse_args():
     cmd_parser.add_argument('--log_dir', dest="log_dir",
                             help="Directory for script log files",
                             default=None)
+    cmd_parser.add_argument('--unparsed_ratio', dest='unparsed_ratio',
+                            help="Percentage of unparsed events", default=50)
     args = parser.parse_args()
     if config_parser:
         return parse_config(args.config)
     else:
         return (args.nginx_dir, args.report_dir,
-                args.log_dir, args.report_size)
+                args.log_dir, args.report_size,
+                args.unparsed_ratio)
 
 
 def main():
@@ -291,16 +295,14 @@ def main():
         logging.basicConfig(format=FORMAT, datefmt='%Y.%m.%d %H:%M:%S',
                             stream=sys.stdout, level=logging.DEBUG)
     try:
-        # nginx_file = get_last_log_file(nginx_dir)
         nginx_file = get_last_file_by_date(nginx_dir, True)
         date = get_log_file_date(nginx_file)
         report_date = ".".join([date[0:4], date[4:6], date[6:9]])
         nginx_file_full_path = join(nginx_dir, nginx_file)
-        if listdir(report_dir) == []:
+        if not listdir(report_dir):
             logging.info("Report directory is empty."
                          " First time running script")
         else:
-            # last_report_file = get_last_report_file(report_dir)
             last_report_file = get_last_file_by_date(report_dir)
             last_report_date = last_report_file.lstrip(
                 'report-').rstrip('.html').replace(".", "")
