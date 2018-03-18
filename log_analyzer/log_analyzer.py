@@ -24,6 +24,16 @@ def median(lst):
             return sum(sorted(lst)[n//2-1:n//2+1])/2.0
 
 
+def get_delimiter():
+    """Check OS type and return delimiter
+
+    :return:
+    """
+    if _platform in ["linux", "linux2", 'darwin']:
+       return "/"
+    elif _platform in ["win32", "win64"]:
+        return "\\"
+
 def get_last_file_by_date(dir, nginx=False):
     """
 
@@ -31,11 +41,7 @@ def get_last_file_by_date(dir, nginx=False):
     :param pattern:
     :return:
     """
-
-    if _platform in ["linux", "linux2", 'darwin']:
-        delimiter = "/"
-    elif _platform in ["win32", "win64"]:
-        delimiter = "\\"
+    delimiter = get_delimiter()
     files = []
     if nginx:
         pattern = "nginx-access-ui.log-*"
@@ -46,7 +52,7 @@ def get_last_file_by_date(dir, nginx=False):
         for file in glob.glob(pathname):
             files.append(file.split(delimiter)[-1])
     else:
-        sys.exit(1)
+        return None
     return sorted(files)[-1]
 
 
@@ -138,7 +144,8 @@ def generate_report(statistics, report_path, report_size, report_date):
     :param statistics:
     :return:
     """
-    with open("./report.html", 'r') as report_template:
+    delimiter = get_delimiter()
+    with open(join(delimiter, "report.html", 'r')) as report_template:
         report = report_template.read()
     top_urls = get_top_urls(statistics, report_size)
     url_list = []
@@ -310,6 +317,8 @@ def main():
                          " First time running script")
         else:
             last_report_file = get_last_file_by_date(report_dir)
+            if not last_report_file:
+                logging.error("Path %s not exists. Exiting" % last_report_file)
             last_report_date = last_report_file.lstrip(
                 'report-').rstrip('.html').replace(".", "")
             last_log_date = get_log_file_date(nginx_file)
@@ -323,8 +332,9 @@ def main():
         generate_report(statistics, report_dir, report_size, report_date)
 
         current_time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
+        delimiter = get_delimiter()
         if log_dir:
-            file = open('%s/log_analyzer_%s.ts' % (log_dir, current_time),
+            file = open('%s%slog_analyzer_%s.ts' % (log_dir, delimiter, current_time),
                         'w+')
         else:
             file = open('log_analyzer_%s.ts' % current_time, 'w+')
