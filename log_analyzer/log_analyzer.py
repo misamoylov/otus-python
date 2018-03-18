@@ -319,6 +319,7 @@ def main():
             last_report_file = get_last_file_by_date(report_dir)
             if not last_report_file:
                 logging.error("Path %s not exists. Exiting" % last_report_file)
+                sys.exit(1)
             last_report_date = last_report_file.lstrip(
                 'report-').rstrip('.html').replace(".", "")
             last_log_date = get_log_file_date(nginx_file)
