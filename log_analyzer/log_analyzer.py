@@ -14,16 +14,6 @@ from sys import platform as _platform
 from time import gmtime, strftime
 
 
-def median(lst):
-    n = len(lst)
-    if n < 1:
-            return None
-    if n % 2 == 1:
-            return sorted(lst)[n//2]
-    else:
-            return sum(sorted(lst)[n//2-1:n//2+1])/2.0
-
-
 def get_delimiter():
     """Check OS type and return delimiter
 
@@ -34,10 +24,9 @@ def get_delimiter():
     elif _platform in ["win32", "win64"]:
         return "\\"
 
-def get_last_file_by_date(dir, nginx=False):
+def get_last_file_by_date(directory, nginx=False):
     """
 
-    :param file:
     :param pattern:
     :return:
     """
@@ -47,8 +36,8 @@ def get_last_file_by_date(dir, nginx=False):
         pattern = "nginx-access-ui.log-*"
     else:
         pattern = "report-*.html"
-    pathname = join(dir, pattern)
-    if isdir(dir):
+    pathname = join(directory, pattern)
+    if isdir(directory):
         for file in glob.glob(pathname):
             files.append(file.split(delimiter)[-1])
     else:
@@ -56,9 +45,9 @@ def get_last_file_by_date(dir, nginx=False):
     return sorted(files)[-1]
 
 
-def generate_statistics(file, unparsed_ratio):
+def generate_statistics(logs_file, unparsed_ratio):
     """Generate statistics
-    :file: str - path to file
+    :logs_file: str - path to file with logs
     :unparsed_ratio: integer
     :return:
     """
@@ -73,7 +62,7 @@ def generate_statistics(file, unparsed_ratio):
     statistics = {'urls': {}}
     unparsed_events = 0
     events = 0
-    for l in file:
+    for l in logs_file:
         events += 1
         parsed_ratio = 100 * (events - unparsed_events) / events
         for regexp in regexps:
@@ -144,8 +133,7 @@ def generate_report(statistics, report_path, report_size, report_date):
     :param statistics:
     :return:
     """
-    delimiter = get_delimiter()
-    with open(join(delimiter, "report.html", 'r')) as report_template:
+    with open(join(os.getcwd(), "report.html", 'r')) as report_template:
         report = report_template.read()
     top_urls = get_top_urls(statistics, report_size)
     url_list = []
@@ -243,7 +231,13 @@ def get_med(times):
     :param log_file:
     :return:
     """
-    return median(times)
+    n = len(times)
+    if n < 1:
+        return None
+    if n % 2 == 1:
+        return sorted(times)[n // 2]
+    else:
+        return sum(sorted(times)[n // 2 - 1:n // 2 + 1]) / 2.0
 
 
 def parse_config(config):
@@ -333,9 +327,8 @@ def main():
         generate_report(statistics, report_dir, report_size, report_date)
 
         current_time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
-        delimiter = get_delimiter()
         if log_dir:
-            file = open('%s%slog_analyzer_%s.ts' % (log_dir, delimiter, current_time),
+            file = open(join(log_dir, 'log_analyzer_%s.ts' % current_time),
                         'w+')
         else:
             file = open('log_analyzer_%s.ts' % current_time, 'w+')
