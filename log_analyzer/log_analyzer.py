@@ -38,8 +38,8 @@ def get_last_file_by_date(directory, nginx=False):
         pattern = "report-*.html"
     pathname = join(directory, pattern)
     if isdir(directory):
-        for file in glob.glob(pathname):
-            files.append(file.split(delimiter)[-1])
+        for f in glob.glob(pathname):
+            files.append(f.split(delimiter)[-1])
     else:
         return None
     return sorted(files)[-1]
@@ -328,12 +328,12 @@ def main():
 
         current_time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
         if log_dir:
-            file = open(join(log_dir, 'log_analyzer_%s.ts' % current_time),
+            log_file = open(join(log_dir, 'log_analyzer_%s.ts' % current_time),
                         'w+')
         else:
-            file = open('log_analyzer_%s.ts' % current_time, 'w+')
-        file.write(current_time)
-        file.close()
+            log_file = open('log_analyzer_%s.ts' % current_time, 'w+')
+        log_file.write(current_time)
+        log_file.close()
     except KeyboardInterrupt:
         logging.exception("Keyrbord Interrup from user")
     except IOError:
