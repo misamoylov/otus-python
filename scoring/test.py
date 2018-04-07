@@ -1,6 +1,6 @@
 import unittest
 
-import api
+from scoring import api
 
 
 class TestSuite(unittest.TestCase):
