@@ -1,4 +1,5 @@
 import argparse
+import os
 import socket
 import sys
 import threading
@@ -38,25 +39,41 @@ class WebServer:
         except Exception as e:
             pass  # Pass if socket is already closed
 
-    def _generate_headers(self, response_code):
+    def _generate_headers(self, response_code, request_file):
         """
         Generate HTTP response headers.
         Parameters:
             - response_code: HTTP response code to add to the header. 200 and 404 supported
+            - request_file: Path to requested file
         Returns:
             A formatted HTTP header for the given response_code
         """
         header = ''
         if response_code == 200:
             header += 'HTTP/1.1 200 OK\n'
+            if request_file.endswith(".jpg") or request_file.endswith(".jpeg"):
+                mimetype = 'image/jpeg'
+            elif request_file.endswith(".png"):
+                mimetype = 'image/png'
+            elif request_file.endswith(".gif"):
+                mimetype = 'image/gif'
+            elif request_file.endswith(".swf"):
+                mimetype = 'application/x-shockwave-flash'
+            elif request_file.endswith(".css"):
+                mimetype = 'text/css'
+            elif request_file.endswith(".js"):
+                mimetype = 'application/javascript'
+            elif request_file.endswith(".html"):
+                mimetype = 'text/html'
+
         elif response_code == 404:
             header += 'HTTP/1.1 404 Not Found\n'
         # How to count content length
         time_now = time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime())
         header += 'Date: {now}\n'.format(now=time_now)
         header += 'Server: Mikhail Samoylov for Otus Python Server\n'
-        header += 'Content-lenght: \n'
-        header += 'Content-type: \n'
+        header += 'Content-length: {}\n'.format(str(os.path.getsize(request_file)))
+        header += 'Content-type: {}\n'.format(mimetype)
         header += 'Connection: close\n\n'  # Signal that connection will be closed after completing the request
         return header
 
@@ -98,8 +115,7 @@ class WebServer:
 
                 if file_requested == "/":
                     file_requested = "/index.html"
-
-                if file_requested == "/directory/":
+                elif file_requested == "/directory/":
                     file_requested = "/directory/index.html"
 
                 filepath_to_serve = self.doc_root + file_requested
@@ -111,17 +127,15 @@ class WebServer:
                     if request_method == "GET":  # Read only for GET
                         response_data = f.read()
                     f.close()
-                    response_header = self._generate_headers(200)
+                    response_header = self._generate_headers(200, filepath_to_serve)
 
                 except Exception as e:
                     print("File not found. Serving 404 page.")
-                    response_header = self._generate_headers(404)
+                    response_header = self._generate_headers(404, filepath_to_serve)
 
                     if request_method == "GET":  # Temporary 404 Response Page
-                        response_data = b"<html><body><center><h1>Error 404:" \
-                                        b" File not found</h1></center><p>Head" \
-                                        b" back to <a href="/">dry land</a>.</p></body></html>"
-
+                        response_data = '<html><body><center><h3>Error 404: File not found</h3><p>' \
+                                        'Python HTTP Server</p></center></body></html>'.encode()
                 response = response_header.encode()
                 if request_method == "GET":
                     response += response_data
@@ -130,7 +144,15 @@ class WebServer:
                 client.close()
                 break
             else:
+                response_header = self._generate_headers(405)
+                response_data = '<html><body><center><h3>Error 405: Method not allowed</h3><p>' \
+                                'Python HTTP Server</p></center></body></html>'.encode()
+                response = response_header.encode()
+                response += response_data
+                client.send(response)
+                client.close()
                 print("Unknown HTTP request method: {method}".format(method=request_method))
+                break
 
 
 def parse_args():
@@ -147,6 +169,9 @@ def parse_args():
 
 def main():
     options = parse_args()
+    server = WebServer(options.port)
+    server.start()
+    print("Press Ctrl+C to shut down server.")
 
 
 if __name__ == "__main__":
