@@ -1,4 +1,5 @@
 import argparse
+import multiprocessing
 import os
 import socket
 import sys
@@ -155,6 +156,26 @@ class WebServer:
                 break
 
 
+def run_server(host, port, workers, doc_root):
+    processes = []
+    try:
+        for i in range(workers):
+            server = WebServer(host, port, doc_root)
+            p = multiprocessing.Process(target=server.start())
+            processes.append(p)
+            p.start()
+            print('Server running on the process: %d, host: %s, port: %d' % (p.pid, host, port))
+        for proc in processes:
+            proc.join()
+    except KeyboardInterrupt:
+        for process in processes:
+            if process:
+                pid = process.pid
+                print('Trying to shutting down process %s' % pid)
+                process.terminate()
+                print('Process %s terminated...' % pid)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description='Web Server For Education.')
@@ -169,7 +190,7 @@ def parse_args():
 
 def main():
     options = parse_args()
-    server = WebServer(options.port)
+    server = WebServer(options.port, options.doc_root)
     server.start()
     print("Press Ctrl+C to shut down server.")
 
