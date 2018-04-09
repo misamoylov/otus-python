@@ -8,8 +8,9 @@ import logging
 import hashlib
 import uuid
 import re
+import scoring
+
 from dateutil.relativedelta import relativedelta
-from scoring import scoring
 from optparse import OptionParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -428,7 +429,7 @@ def method_handler(request, context, store):
 
     # 1. Validate MethodRequest args
     methodrequest = MethodRequest(**request["body"])
-    methodrequest.validate()
+    methodrequest.is_valid()
     if methodrequest.errors:
         return methodrequest.errors, INVALID_REQUEST
 
@@ -449,21 +450,6 @@ def method_handler(request, context, store):
 
     return handler.get_answer(store, context, methodrequest.is_admin), OK
 
-
-class MainHTTPHandler(BaseHTTPRequestHandler):
-    """
-    HTTP Server for processing POST requests
-    """
-    router = {
-        "method": method_handler
-    }
-    store = None
-
-    def get_request_id(self, headers):
-        """
-        Return request id from headers
-        """
-        return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
@@ -507,6 +493,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
         logging.info(context)
         self.wfile.write(json.dumps(r))
         return
+
 
 if __name__ == "__main__":
     op = OptionParser()
