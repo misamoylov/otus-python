@@ -1,17 +1,53 @@
 import argparse
 import os
-import select
 import socket
 import sys
 import time
 
+from queue import Queue
+from threading import Thread
 
-class WebServer:
-    READ_ONLY = select.EPOLLIN | select.EPOLLPRI
-    epoll = select.epoll()
-    timeout = 60
+
+class Worker(Thread):
+    """Thread executing tasks from a given tasks queue"""
+
+    def __init__(self, tasks):
+        Thread.__init__(self)
+        self.tasks = tasks
+        self.daemon = True
+        self.start()
+
+    def run(self):
+        while True:
+            func, args, kargs = self.tasks.get()
+            try:
+                func(*args, **kargs)
+            except Exception as e:
+                print(e)
+            self.tasks.task_done()
+
+
+class ThreadPool:
+    """Pool of threads consuming tasks from a queue"""
+
+    def __init__(self, num_threads):
+        self.tasks = Queue(num_threads)
+        for _ in range(num_threads):
+            Worker(self.tasks)
+
+    def add_task(self, func, *args, **kargs):
+        """Add a task to the queue"""
+        self.tasks.put((func, args, kargs))
+
+    def wait_completion(self):
+        """Wait for completion of all the tasks in the queue"""
+        self.tasks.join()
+
+
+class WebServer(ThreadPool):
 
     def __init__(self, port=8080, doc_root="DOCUMENT_ROOT", workers=2):
+        super().__init__(workers)
         self.host = socket.gethostname().split('.')[0]
         self.port = port
         self.doc_root = doc_root
@@ -74,13 +110,13 @@ class WebServer:
                 mimetype = 'text/html'
             header += 'Content-length: {}\n'.format(str(os.path.getsize(request_file)))
             header += 'Content-type: {}\n'.format(mimetype)
+
         elif response_code == 404:
             header += 'HTTP/1.1 404 Not Found\n'
         # How to count content length
         time_now = time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime())
         header += 'Date: {now}\n'.format(now=time_now)
         header += 'Server: Mikhail Samoylov for Otus Python Server\n'
-
         header += 'Connection: close\n\n'  # Signal that connection will be closed after completing the request
         return header
 
@@ -89,25 +125,14 @@ class WebServer:
         Listens on self.port for any incoming connections
         """
         self.socket.listen(5)
-        self.epoll.register(self.socket, self.READ_ONLY)
-        fd_to_socket = {self.socket.fileno(): self.socket}
         while True:
-            events = self.epoll.poll(self.timeout)
-            for fd, flag in events:
-                sock = fd_to_socket[fd]
-                if flag & self.READ_ONLY:
-                    if sock is self.socket:
-                        (client, address) = self.socket.accept()
-                        # client.settimeout(60)
-                        client.setblocking(False)
-                        fd_to_socket[client.fileno()] = client
-                        print("Recieved connection from {addr}".format(addr=address))
-                        self.epoll.register(client, self.READ_ONLY)
-                    else:
-                        self._handle_client(sock)
-                        del fd_to_socket[fd]
+            (client, address) = self.socket.accept()
+            client.settimeout(60)
+            print("Recieved connection from {addr}".format(addr=address))
+            self.add_task(self._handle_client(client, address))
+            self.wait_completion()
 
-    def _handle_client(self, client):
+    def _handle_client(self, client, address):
         """
         Main loop for handling connecting clients and serving files from DOCUMENT_ROOT
         Parameters:
