@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import socket
 import sys
@@ -7,6 +8,9 @@ import time
 from queue import Queue
 from threading import Thread
 
+
+logging.basicConfig(format='[%(asctime)s] %(levelname)s %(message)s', level=logging.INFO,
+                    datefmt='%a %b %d %H:%M:%S %Y')
 
 class Worker(Thread):
     """Thread executing tasks from a given tasks queue"""
@@ -23,7 +27,7 @@ class Worker(Thread):
             try:
                 func(*args, **kargs)
             except Exception as e:
-                print(e)
+                logging.error(e)
             self.tasks.task_done()
 
 
@@ -59,12 +63,12 @@ class WebServer(ThreadPool):
         Attempts to create and bind a socket to launch the server
         """
         try:
-            print("Starting server on {host}:{port}".format(host=self.host, port=self.port))
+            logging.info("Starting server on {host}:{port}".format(host=self.host, port=self.port))
             self.socket.bind((self.host, int(self.port)))
-            print("Server started on port {port}.".format(port=self.port))
+            logging.info("Server started on port {port}.".format(port=self.port))
         except Exception as e:
-            print("Error: Could not bind to port {port}".format(port=self.port))
-            print(e)
+            logging.info("Error: Could not bind to port {port}".format(port=self.port))
+            logging.info(e)
             self.shutdown()
             sys.exit(1)
         else:
@@ -75,7 +79,7 @@ class WebServer(ThreadPool):
         Shutdown server
         """
         try:
-            print("Shutting down server")
+            logging.info("Shutting down server")
             self.socket.shutdown(socket.SHUT_RDWR)
         except Exception as e:
             pass  # Pass if socket is already closed
@@ -128,7 +132,7 @@ class WebServer(ThreadPool):
         while True:
             (client, address) = self.socket.accept()
             client.settimeout(60)
-            print("Recieved connection from {addr}".format(addr=address))
+            logging.info("Recieved connection from {addr}".format(addr=address))
             self.add_task(self._handle_client, client, address)
             self.wait_completion()
 
@@ -141,15 +145,15 @@ class WebServer(ThreadPool):
         """
         PACKET_SIZE = 1024
         while True:
-            print("CLIENT", client)
+            logging.info("CLIENT", client)
             data = client.recv(PACKET_SIZE).decode()  # Recieve data packet from client and decode
 
             if not data:
                 break
 
             request_method = data.split(' ')[0]
-            print("Method: {m}".format(m=request_method))
-            print("Request Body: {b}".format(b=data))
+            logging.info("Method: {m}".format(m=request_method))
+            logging.info("Request Body: {b}".format(b=data))
 
             if request_method == "GET" or request_method == "HEAD":
                 # Ex) "GET /index.html" split on space
@@ -164,7 +168,7 @@ class WebServer(ThreadPool):
                     file_requested = "/directory/index.html"
 
                 filepath_to_serve = self.doc_root + file_requested
-                print("Serving web page [{fp}]".format(fp=filepath_to_serve))
+                logging.info("Serving web page [{fp}]".format(fp=filepath_to_serve))
 
                 # Load and Serve files content
                 try:
@@ -174,7 +178,7 @@ class WebServer(ThreadPool):
                     response_header = self._generate_headers(200, filepath_to_serve)
 
                 except Exception as e:
-                    print("File not found. Serving 404 page.")
+                    logging.info("File not found. Serving 404 page.")
                     response_header = self._generate_headers(404, filepath_to_serve)
 
                     if request_method == "GET":  # Temporary 404 Response Page
@@ -195,7 +199,7 @@ class WebServer(ThreadPool):
                 response += response_data
                 client.send(response)
                 client.close()
-                print("Unknown HTTP request method: {method}".format(method=request_method))
+                logging.error("Unknown HTTP request method: {method}".format(method=request_method))
                 break
 
 
@@ -213,14 +217,13 @@ def parse_args():
 
 def main():
     options = parse_args()
-    server = WebServer(options.port, options.doc_root, options.workers)
+    server = WebServer(options.port, options.doc_root, int(options.workers))
     try:
         server.start()
-        print("Press Ctrl+C to shut down server.")
+        logging.info("Press Ctrl+C to shut down server.")
     except KeyboardInterrupt:
         server.shutdown()
-        print("User stopped server process.")
-
+        logging.info("User stopped server process.")
 
 
 if __name__ == "__main__":
