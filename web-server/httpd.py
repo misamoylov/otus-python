@@ -1,19 +1,22 @@
 import argparse
-import multiprocessing
 import os
+import select
 import socket
 import sys
-import threading
 import time
 
 
 class WebServer:
+    READ_ONLY = select.EPOLLIN | select.EPOLLPRI
+    epoll = select.epoll()
+    timeout = 60
 
-    def __init__(self, port=8080, doc_root="DOCUMENT_ROOT"):
+    def __init__(self, port=8080, doc_root="DOCUMENT_ROOT", workers=2):
         self.host = socket.gethostname().split('.')[0]
         self.port = port
         self.doc_root = doc_root
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.workers = workers
 
     def start(self):
         """
@@ -21,10 +24,11 @@ class WebServer:
         """
         try:
             print("Starting server on {host}:{port}".format(host=self.host, port=self.port))
-            self.socket.bind((self.host, self.port))
+            self.socket.bind((self.host, int(self.port)))
             print("Server started on port {port}.".format(port=self.port))
         except Exception as e:
             print("Error: Could not bind to port {port}".format(port=self.port))
+            print(e)
             self.shutdown()
             sys.exit(1)
         else:
@@ -40,7 +44,7 @@ class WebServer:
         except Exception as e:
             pass  # Pass if socket is already closed
 
-    def _generate_headers(self, response_code, request_file):
+    def _generate_headers(self, response_code, request_file=""):
         """
         Generate HTTP response headers.
         Parameters:
@@ -66,15 +70,17 @@ class WebServer:
                 mimetype = 'application/javascript'
             elif request_file.endswith(".html"):
                 mimetype = 'text/html'
-
+            else:
+                mimetype = 'text/html'
+            header += 'Content-length: {}\n'.format(str(os.path.getsize(request_file)))
+            header += 'Content-type: {}\n'.format(mimetype)
         elif response_code == 404:
             header += 'HTTP/1.1 404 Not Found\n'
         # How to count content length
         time_now = time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime())
         header += 'Date: {now}\n'.format(now=time_now)
         header += 'Server: Mikhail Samoylov for Otus Python Server\n'
-        header += 'Content-length: {}\n'.format(str(os.path.getsize(request_file)))
-        header += 'Content-type: {}\n'.format(mimetype)
+
         header += 'Connection: close\n\n'  # Signal that connection will be closed after completing the request
         return header
 
@@ -83,13 +89,25 @@ class WebServer:
         Listens on self.port for any incoming connections
         """
         self.socket.listen(5)
+        self.epoll.register(self.socket, self.READ_ONLY)
+        fd_to_socket = {self.socket.fileno(): self.socket}
         while True:
-            (client, address) = self.socket.accept()
-            client.settimeout(60)
-            print("Recieved connection from {addr}".format(addr=address))
-            threading.Thread(target=self._handle_client, args=(client, address)).start()
+            events = self.epoll.poll(self.timeout)
+            for fd, flag in events:
+                sock = fd_to_socket[fd]
+                if flag & self.READ_ONLY:
+                    if sock is self.socket:
+                        (client, address) = self.socket.accept()
+                        # client.settimeout(60)
+                        client.setblocking(False)
+                        fd_to_socket[client.fileno()] = client
+                        print("Recieved connection from {addr}".format(addr=address))
+                        self.epoll.register(client, self.READ_ONLY)
+                    else:
+                        self._handle_client(sock)
+                        del fd_to_socket[fd]
 
-    def _handle_client(self, client, address):
+    def _handle_client(self, client):
         """
         Main loop for handling connecting clients and serving files from DOCUMENT_ROOT
         Parameters:
@@ -101,7 +119,8 @@ class WebServer:
             print("CLIENT", client)
             data = client.recv(PACKET_SIZE).decode()  # Recieve data packet from client and decode
 
-            if not data: break
+            if not data:
+                break
 
             request_method = data.split(' ')[0]
             print("Method: {m}".format(m=request_method))
@@ -124,10 +143,9 @@ class WebServer:
 
                 # Load and Serve files content
                 try:
-                    f = open(filepath_to_serve, 'rb')
-                    if request_method == "GET":  # Read only for GET
-                        response_data = f.read()
-                    f.close()
+                    with open(filepath_to_serve, 'rb') as f:
+                        if request_method == "GET":  # Read only for GET
+                            response_data = f.read()
                     response_header = self._generate_headers(200, filepath_to_serve)
 
                 except Exception as e:
@@ -154,26 +172,6 @@ class WebServer:
                 client.close()
                 print("Unknown HTTP request method: {method}".format(method=request_method))
                 break
-
-
-def run_server(host, port, workers, doc_root):
-    processes = []
-    try:
-        for i in range(workers):
-            server = WebServer(host, port, doc_root)
-            p = multiprocessing.Process(target=server.start())
-            processes.append(p)
-            p.start()
-            print('Server running on the process: %d, host: %s, port: %d' % (p.pid, host, port))
-        for proc in processes:
-            proc.join()
-    except KeyboardInterrupt:
-        for process in processes:
-            if process:
-                pid = process.pid
-                print('Trying to shutting down process %s' % pid)
-                process.terminate()
-                print('Process %s terminated...' % pid)
 
 
 def parse_args():
