@@ -46,7 +46,7 @@ class ThreadPool:
 
 class WebServer(ThreadPool):
 
-    def __init__(self, port=8080, doc_root="DOCUMENT_ROOT", workers=2):
+    def __init__(self, port=8080, doc_root="DOCUMENT_ROOT", workers=1):
         super().__init__(workers)
         self.host = socket.gethostname().split('.')[0]
         self.port = port
@@ -129,7 +129,7 @@ class WebServer(ThreadPool):
             (client, address) = self.socket.accept()
             client.settimeout(60)
             print("Recieved connection from {addr}".format(addr=address))
-            self.add_task(self._handle_client(client, address))
+            self.add_task(self._handle_client, client, address)
             self.wait_completion()
 
     def _handle_client(self, client, address):
