@@ -213,9 +213,14 @@ def parse_args():
 
 def main():
     options = parse_args()
-    server = WebServer(options.port, options.doc_root)
-    server.start()
-    print("Press Ctrl+C to shut down server.")
+    server = WebServer(options.port, options.doc_root, options.workers)
+    try:
+        server.start()
+        print("Press Ctrl+C to shut down server.")
+    except KeyboardInterrupt:
+        server.shutdown()
+        print("User stopped server process.")
+
 
 
 if __name__ == "__main__":
