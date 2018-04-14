@@ -1,5 +1,6 @@
 import argparse
 import logging
+import mimetypes
 import os
 import socket
 import sys
@@ -11,6 +12,7 @@ from threading import Thread
 
 logging.basicConfig(format='[%(asctime)s] %(levelname)s %(message)s', level=logging.INFO,
                     datefmt='%a %b %d %H:%M:%S %Y')
+
 
 class Worker(Thread):
     """Thread executing tasks from a given tasks queue"""
@@ -96,22 +98,7 @@ class WebServer(ThreadPool):
         header = ''
         if response_code == 200:
             header += 'HTTP/1.1 200 OK\n'
-            if request_file.endswith(".jpg") or request_file.endswith(".jpeg"):
-                mimetype = 'image/jpeg'
-            elif request_file.endswith(".png"):
-                mimetype = 'image/png'
-            elif request_file.endswith(".gif"):
-                mimetype = 'image/gif'
-            elif request_file.endswith(".swf"):
-                mimetype = 'application/x-shockwave-flash'
-            elif request_file.endswith(".css"):
-                mimetype = 'text/css'
-            elif request_file.endswith(".js"):
-                mimetype = 'application/javascript'
-            elif request_file.endswith(".html"):
-                mimetype = 'text/html'
-            else:
-                mimetype = 'text/html'
+            mimetype = mimetypes.types_map[os.path.splitext('/path/to/somefile.ext')[1]]
             header += 'Content-length: {}\n'.format(str(os.path.getsize(request_file)))
             header += 'Content-type: {}\n'.format(mimetype)
 
