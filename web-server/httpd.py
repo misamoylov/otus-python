@@ -132,7 +132,7 @@ class WebServer(ThreadPool):
         """
         PACKET_SIZE = 1024
         while True:
-            logging.info("CLIENT", client)
+            logging.info("CLIENT: {c}".format(c=client))
             data = client.recv(PACKET_SIZE).decode()  # Recieve data packet from client and decode
 
             if not data:
@@ -166,7 +166,7 @@ class WebServer(ThreadPool):
 
                 except Exception as e:
                     logging.info("File not found. Serving 404 page.")
-                    response_header = self._generate_headers(404, filepath_to_serve)
+                    response_header = self._generate_headers(404)
 
                     if request_method == "GET":  # Temporary 404 Response Page
                         response_data = '<html><body><center><h3>Error 404: File not found</h3><p>' \
