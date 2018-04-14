@@ -98,7 +98,7 @@ class WebServer(ThreadPool):
         header = ''
         if response_code == 200:
             header += 'HTTP/1.1 200 OK\n'
-            mimetype = mimetypes.types_map[os.path.splitext('/path/to/somefile.ext')[1]]
+            mimetype = mimetypes.types_map[os.path.splitext(request_file)[1]]
             header += 'Content-length: {}\n'.format(str(os.path.getsize(request_file)))
             header += 'Content-type: {}\n'.format(mimetype)
 
