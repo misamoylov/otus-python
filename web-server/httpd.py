@@ -2,6 +2,7 @@ import argparse
 import logging
 import mimetypes
 import os
+import re
 import socket
 import sys
 import time
@@ -11,7 +12,30 @@ from threading import Thread
 
 
 logging.basicConfig(format='[%(asctime)s] %(levelname)s %(message)s', level=logging.INFO,
+
                     datefmt='%a %b %d %H:%M:%S %Y')
+
+PCT_ENCODED = '%[A-Fa-f0-9]{2}'
+SUB_DELIMITERS_RE = "!$&'()\*+,;="
+UNRESERVED_RE = 'A-Za-z0-9._~\-'
+PCHAR = '([' + UNRESERVED_RE + SUB_DELIMITERS_RE + ':@]|%s)' % PCT_ENCODED
+segments = {
+    'segment': PCHAR + '*',
+    # Non-zero length segment
+    'segment-nz': PCHAR + '+',
+    # Non-zero length segment without ":"
+    'segment-nz-nc': PCHAR.replace(':', '') + '+'
+}
+PATH_EMPTY = '^$'
+PATH_ROOTLESS = '%(segment-nz)s(/%(segment)s)*' % segments
+PATH_NOSCHEME = '%(segment-nz-nc)s(/%(segment)s)*' % segments
+PATH_ABSOLUTE = '/(%s)?' % PATH_ROOTLESS
+PATH_ABEMPTY = '(/%(segment)s)*' % segments
+PATH_RE = '^(%s|%s|%s|%s|%s)$' % (
+    PATH_ABEMPTY, PATH_ABSOLUTE, PATH_NOSCHEME, PATH_ROOTLESS, PATH_EMPTY
+)
+
+PATH_MATCHER = re.compile(PATH_RE)
 
 
 class Worker(Thread):
@@ -65,6 +89,7 @@ class WebServer(ThreadPool):
         Attempts to create and bind a socket to launch the server
         """
         try:
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, True)
             logging.info("Starting server on {host}:{port}".format(host=self.host, port=self.port))
             self.socket.bind((self.host, int(self.port)))
             logging.info("Server started on port {port}.".format(port=self.port))
@@ -104,6 +129,8 @@ class WebServer(ThreadPool):
 
         elif response_code == 404:
             header += 'HTTP/1.1 404 Not Found\n'
+        elif response_code == 400:
+            header += 'HTTP/1.1 400 Bad request\n'
         # How to count content length
         time_now = time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime())
         header += 'Date: {now}\n'.format(now=time_now)
@@ -149,28 +176,33 @@ class WebServer(ThreadPool):
                 # If get has parameters ('?'), ignore them
                 file_requested = file_requested.split('?')[0]
 
-                if file_requested == "/":
-                    file_requested = "/index.html"
-                elif file_requested == "/directory/":
-                    file_requested = "/directory/index.html"
+                if not self.path_is_valid(file_requested):
+                    response_data = '<html><body><center><h3>Error 400: Bad request</h3><p>' \
+                                    'Python HTTP Server</p></center></body></html>'.encode()
+                    response_header = self._generate_headers(400)
+                else:
+                    if file_requested == "/":
+                        file_requested = "/index.html"
+                    elif file_requested == "/directory/":
+                        file_requested = "/directory/index.html"
 
-                filepath_to_serve = self.doc_root + file_requested
-                logging.info("Serving web page [{fp}]".format(fp=filepath_to_serve))
+                    filepath_to_serve = self.doc_root + file_requested
+                    logging.info("Serving web page [{fp}]".format(fp=filepath_to_serve))
 
                 # Load and Serve files content
-                try:
-                    with open(filepath_to_serve, 'rb') as f:
-                        if request_method == "GET":  # Read only for GET
-                            response_data = f.read()
-                    response_header = self._generate_headers(200, filepath_to_serve)
+                    try:
+                        with open(filepath_to_serve, 'rb') as f:
+                            if request_method == "GET":  # Read only for GET
+                                response_data = f.read()
+                        response_header = self._generate_headers(200, filepath_to_serve)
 
-                except Exception as e:
-                    logging.info("File not found. Serving 404 page.")
-                    response_header = self._generate_headers(404)
+                    except Exception as e:
+                        logging.info("File not found. Serving 404 page.")
+                        response_header = self._generate_headers(404)
 
-                    if request_method == "GET":  # Temporary 404 Response Page
-                        response_data = '<html><body><center><h3>Error 404: File not found</h3><p>' \
-                                        'Python HTTP Server</p></center></body></html>'.encode()
+                        if request_method == "GET":  # Temporary 404 Response Page
+                            response_data = '<html><body><center><h3>Error 404: File not found</h3><p>' \
+                                            'Python HTTP Server</p></center></body></html>'.encode()
                 response = response_header.encode()
                 if request_method == "GET":
                     response += response_data
@@ -181,13 +213,25 @@ class WebServer(ThreadPool):
             else:
                 response_header = self._generate_headers(405)
                 response_data = '<html><body><center><h3>Error 405: Method not allowed</h3><p>' \
-                                'Python HTTP Server</p></center></body></html>'.encode()
+                                    'Python HTTP Server</p></center></body></html>'.encode()
                 response = response_header.encode()
                 response += response_data
                 client.send(response)
                 client.close()
                 logging.error("Unknown HTTP request method: {method}".format(method=request_method))
                 break
+
+    def path_is_valid(self, path):
+        """Determine if a value is valid based on the provided matcher.
+        :param str path:
+            The path string to validate.
+        :param matcher:
+            Compiled regular expression to use to validate the value.
+        :param require:
+            Whether or not the value is required.
+        """
+        return (path is not None
+                and PATH_MATCHER.match(path))
 
 
 def parse_args():
