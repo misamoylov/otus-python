@@ -4,6 +4,7 @@ import os
 import gzip
 import sys
 import glob
+import multiprocessing
 import logging
 import collections
 from optparse import OptionParser
@@ -13,9 +14,45 @@ from optparse import OptionParser
 import appsinstalled_pb2
 # pip install python-memcached
 import memcache
+import threading
+import Queue
 
+SENTINEL = object()
 NORMAL_ERR_RATE = 0.01
 AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "lat", "lon", "apps"])
+
+
+class Worker(threading.Thread):
+    def __init__(self, queue, rq, m, dry=False):
+        threading.Thread.__init__(self)
+        self.daemon = True
+        self.queue = queue
+        self.rq = rq
+        self.m = m
+        self.dry = dry
+
+    def run(self):
+        logging.info('%s: Start thread %s.' % (os.getpid(), self.name))
+        processed = errors = 0
+        while True:
+            try:
+                line = self.queue.get(timeout=0.1)
+                if line == SENTINEL:
+                    logging.info('%s: Stop thread %s.' % (os.getpid(), self.name))
+                    self.rq.put((processed, errors))
+                    break
+                else:
+                    appsinstalled = parse_appsinstalled(line)
+                    if not appsinstalled:
+                        errors += 1
+                        continue
+                    ok = insert_appsinstalled(self.m, appsinstalled, self.dry)
+                    if ok:
+                        processed += 1
+                    else:
+                        errors += 1
+            except Queue.Empty:
+                continue
 
 
 def dot_rename(path):
@@ -64,6 +101,59 @@ def parse_appsinstalled(line):
     return AppsInstalled(dev_type, dev_id, lat, lon, apps)
 
 
+def file_handler(options):
+    fn, device_memc, options = options
+    thread_pool = {}
+    q_pool = {}
+    results = Queue.Queue()
+
+    # start threads
+    for d in device_memc:
+        m = memcache.Client([device_memc[d]])
+        q = Queue.Queue()
+        worker = Worker(q, results, m, options.dry)
+        thread_pool[d] = worker
+        q_pool[d] = q
+        worker.start()
+
+    logging.info('Processing %s.' % fn)
+    processed = errors = 0
+    with gzip.open(fn) as fd:
+        for line in fd:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                device_type = line.split()[0]
+                if device_type not in device_memc.keys():
+                    errors += 1
+                    logging.error("Unknown device type: %s" % device_type)
+                    continue
+                q_pool[device_type].put(line)
+            except IndexError:
+                continue
+    # stop threads
+    for q in q_pool.values():
+        q.put(SENTINEL)
+    for t in thread_pool.values():
+        t.join()
+    while not results.empty():
+        worker_processed, worker_errors = results.get(timeout=0.1)
+        processed += worker_processed
+        errors += worker_errors
+    if not processed:
+        fd.close()
+        return fn
+
+    err_rate = float(errors) / processed
+    if err_rate < NORMAL_ERR_RATE:
+        logging.info("Acceptable error rate (%s). Successfull load" % err_rate)
+    else:
+        logging.error("High error rate (%s > %s). Failed load" % (err_rate, NORMAL_ERR_RATE))
+    fd.close()
+    return fn
+
+
 def main(options):
     device_memc = {
         "idfa": options.idfa,
@@ -71,40 +161,13 @@ def main(options):
         "adid": options.adid,
         "dvid": options.dvid,
     }
-    for fn in glob.iglob(options.pattern):
-        processed = errors = 0
-        logging.info('Processing %s' % fn)
-        fd = gzip.open(fn)
-        for line in fd:
-            line = line.strip()
-            if not line:
-                continue
-            appsinstalled = parse_appsinstalled(line)
-            if not appsinstalled:
-                errors += 1
-                continue
-            memc_addr = device_memc.get(appsinstalled.dev_type)
-            if not memc_addr:
-                errors += 1
-                logging.error("Unknow device type: %s" % appsinstalled.dev_type)
-                continue
-            ok = insert_appsinstalled(memc_addr, appsinstalled, options.dry)
-            if ok:
-                processed += 1
-            else:
-                errors += 1
-        if not processed:
-            fd.close()
-            dot_rename(fn)
-            continue
-
-        err_rate = float(errors) / processed
-        if err_rate < NORMAL_ERR_RATE:
-            logging.info("Acceptable error rate (%s). Successfull load" % err_rate)
-        else:
-            logging.error("High error rate (%s > %s). Failed load" % (err_rate, NORMAL_ERR_RATE))
-        fd.close()
+    proc_pool = multiprocessing.Pool(int(options.workers))
+    proc_args = sorted([(fn, device_memc, options) for fn in glob.iglob(options.pattern)],
+                       key=lambda x: x[0])
+    logging.info("Worker count: %s." % options.workers)
+    for fn in proc_pool.imap(file_handler, proc_args):
         dot_rename(fn)
+        logging.info('Rename %s.' % fn)
 
 
 def prototest():
@@ -133,6 +196,7 @@ if __name__ == '__main__':
     op.add_option("--gaid", action="store", default="127.0.0.1:33014")
     op.add_option("--adid", action="store", default="127.0.0.1:33015")
     op.add_option("--dvid", action="store", default="127.0.0.1:33016")
+    op.add_option("-w", "--workers", action="store", default=multiprocessing.cpu_count())
     (opts, args) = op.parse_args()
     logging.basicConfig(filename=opts.log, level=logging.INFO if not opts.dry else logging.DEBUG,
                         format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
